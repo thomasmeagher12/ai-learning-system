@@ -2,19 +2,21 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { SessionSummary } from "@/lib/claude";
+import type { PhaseMessage, PhaseContentMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-export default async function SessionCompletePage({
+export default async function RecapDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
   const supa = getSupabaseAdmin();
+
   const { data: session } = await supa
     .from("sessions")
-    .select("session_number, streak, summary, completed_at")
+    .select("id, session_number, streak, summary, completed_at")
     .eq("id", id)
     .eq("status", "complete")
     .maybeSingle();
@@ -22,34 +24,67 @@ export default async function SessionCompletePage({
   if (!session) notFound();
 
   const summary = session.summary as SessionSummary | null;
+
+  let topic = "AI concepts";
+  const { data: learnRow } = await supa
+    .from("phase_data")
+    .select("messages")
+    .eq("session_id", id)
+    .eq("phase", "learn")
+    .maybeSingle();
+
+  if (learnRow) {
+    const seed = (learnRow.messages as PhaseMessage[]).find(
+      (m) => "kind" in m && m.kind === "content",
+    );
+    if (seed && "data" in seed) {
+      topic = String((seed as PhaseContentMessage).data.topic ?? topic);
+    }
+  }
+
   const areas = Array.isArray(summary?.areas_to_revisit)
     ? summary.areas_to_revisit
     : summary?.areas_to_revisit
       ? [String(summary.areas_to_revisit)]
       : [];
 
+  const dateStr = session.completed_at
+    ? new Date(session.completed_at).toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      })
+    : null;
+
   return (
-    <main className="flex flex-1 items-center justify-center px-6 py-10">
-      <div className="flex w-full max-w-lg flex-col items-center gap-8">
-        <div className="flex flex-col items-center gap-2 text-center">
-          <span className="text-xs uppercase tracking-[0.2em] text-neutral-500">
-            Session {session.session_number}
-          </span>
-          <h1 className="text-3xl font-medium tracking-tight">
-            Daily Session Complete
-          </h1>
-          <p className="text-sm text-neutral-600 dark:text-neutral-400">
-            Great work today.
-          </p>
-          {session.streak > 0 && (
-            <span className="text-sm text-neutral-600 dark:text-neutral-400">
-              {session.streak}-day streak
+    <main className="flex flex-1 justify-center px-6 py-10">
+      <div className="w-full max-w-lg">
+        <header className="mb-8">
+          <Link
+            href="/recaps"
+            className="mb-4 inline-block text-sm text-neutral-500 transition hover:text-neutral-900 dark:hover:text-neutral-100"
+          >
+            &larr; All Summaries
+          </Link>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs uppercase tracking-[0.2em] text-neutral-500">
+              Session {session.session_number}
             </span>
-          )}
-        </div>
+            <h1 className="text-2xl font-medium tracking-tight">{topic}</h1>
+            {dateStr && (
+              <span className="text-sm text-neutral-500">{dateStr}</span>
+            )}
+            {session.streak > 0 && (
+              <span className="text-xs text-neutral-500">
+                {session.streak}-day streak
+              </span>
+            )}
+          </div>
+        </header>
 
         {summary ? (
-          <div className="flex w-full flex-col gap-5">
+          <div className="flex flex-col gap-5">
             <SummaryBlock label="What was covered">
               {summary.what_was_covered}
             </SummaryBlock>
@@ -90,23 +125,17 @@ export default async function SessionCompletePage({
             </div>
           </div>
         ) : (
-          <p className="text-sm text-neutral-500">
+          <p className="py-12 text-center text-sm text-neutral-500">
             Session summary unavailable.
           </p>
         )}
 
-        <div className="flex flex-col gap-3 w-full items-center">
+        <div className="mt-8 flex gap-3">
           <Link
             href={`/session/${id}?review=1`}
-            className="w-full max-w-xs rounded-full border border-neutral-300 bg-white px-6 py-3 text-center text-sm font-medium text-neutral-900 transition hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+            className="rounded-full border border-neutral-300 bg-white px-5 py-2.5 text-sm font-medium text-neutral-900 transition hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
           >
-            Review Session
-          </Link>
-          <Link
-            href="/"
-            className="w-full max-w-xs rounded-full bg-neutral-900 px-6 py-3 text-center text-sm font-medium text-neutral-50 transition hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
-          >
-            Back to Home
+            Review Full Session
           </Link>
         </div>
       </div>

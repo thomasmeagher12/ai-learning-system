@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getActiveSession, getLastCompletedSession } from "@/lib/db";
+import { getActiveSession, getLastCompletedSession, getTodayCompletedSession } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +16,12 @@ function formatRelativeDate(iso: string): string {
 }
 
 export default async function Home() {
-  const [active, last] = await Promise.all([
+  const [active, todayDone, last] = await Promise.all([
     getActiveSession(),
+    getTodayCompletedSession(),
     getLastCompletedSession(),
   ]);
 
-  const resumePath = active ? `/session/${active.id}` : null;
   const streak = last?.streak ?? 0;
   const lastLabel = last ? formatRelativeDate(last.completed_at ?? last.created_at) : null;
 
@@ -33,17 +33,29 @@ export default async function Home() {
             AI Daily Training
           </p>
           <h1 className="text-3xl font-medium tracking-tight">
-            Ready to train.
+            Welcome back, TJ.
           </h1>
         </div>
 
-        {resumePath ? (
+        {active ? (
           <Link
-            href={resumePath}
+            href={`/session/${active.id}`}
             className="w-full rounded-full bg-neutral-900 px-6 py-4 text-sm font-medium text-neutral-50 transition hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
           >
             Resume Session
           </Link>
+        ) : todayDone ? (
+          <div className="flex w-full flex-col gap-3">
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              Today&apos;s session is complete. Nice work.
+            </p>
+            <Link
+              href={`/session/${todayDone.id}?review=1`}
+              className="w-full rounded-full border border-neutral-300 bg-white px-6 py-4 text-sm font-medium text-neutral-900 transition hover:bg-neutral-100 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:hover:bg-neutral-800"
+            >
+              Review Today&apos;s Session
+            </Link>
+          </div>
         ) : (
           <form action="/api/session/start" method="post" className="w-full">
             <button

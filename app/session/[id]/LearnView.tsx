@@ -1,4 +1,5 @@
 import ReactMarkdown from "react-markdown";
+import DraftTextarea from "@/app/components/DraftTextarea";
 import type { PhaseRow, PhaseMessage, ChatTurn } from "@/lib/types";
 
 type LearnData = {
@@ -39,9 +40,11 @@ const markdownClass =
 export default function LearnView({
   sessionId,
   phaseRow,
+  reviewMode = false,
 }: {
   sessionId: string;
   phaseRow: PhaseRow | null;
+  reviewMode?: boolean;
 }) {
   const data = extractLearnData(phaseRow);
 
@@ -56,6 +59,8 @@ export default function LearnView({
   const engagementMet = phaseRow?.engagement_met ?? false;
   const feedback =
     phaseRow && !engagementMet ? lastFeedback(phaseRow.messages) : null;
+  const acceptedFeedback =
+    phaseRow && engagementMet ? lastFeedback(phaseRow.messages) : null;
 
   return (
     <article className="flex flex-col gap-8">
@@ -79,17 +84,10 @@ export default function LearnView({
       </section>
 
       {data.comprehension_question && (
-        <form
-          action="/api/session/phase"
-          method="post"
-          className="flex flex-col gap-3 border-t border-neutral-200 pt-8 dark:border-neutral-800"
-        >
-          <input type="hidden" name="sessionId" value={sessionId} />
-          <input type="hidden" name="phase" value="learn" />
-
+        <div className="flex flex-col gap-3 border-t border-neutral-200 pt-8 dark:border-neutral-800">
           <div className="flex flex-col gap-2">
             <span className="text-xs uppercase tracking-[0.2em] text-neutral-500">
-              Before you continue
+              {reviewMode ? "Question" : "Before you continue"}
             </span>
             <p className="text-[15px] leading-7 text-neutral-800 dark:text-neutral-200">
               {data.comprehension_question}
@@ -105,29 +103,58 @@ export default function LearnView({
             </div>
           )}
 
-          <textarea
-            name="response"
-            required
-            minLength={20}
-            defaultValue={phaseRow?.user_response ?? ""}
-            placeholder="Think before answering…"
-            className="min-h-[140px] w-full resize-y rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 dark:focus:border-neutral-100"
-          />
-
-          <div className="flex items-center justify-between pt-2">
-            <span className="text-xs text-neutral-500">
-              {engagementMet
-                ? "Response accepted."
-                : "Submit a genuine attempt to unlock Next."}
-            </span>
-            <button
-              type="submit"
-              className="rounded-full bg-neutral-900 px-5 py-2 text-sm font-medium text-neutral-50 transition hover:bg-neutral-700 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
+          {reviewMode || engagementMet ? (
+            <>
+              {phaseRow?.user_response && (
+                <div className="rounded-md border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-800 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-200">
+                  <p className="mb-1 text-xs uppercase tracking-[0.15em] opacity-50">
+                    Your response
+                  </p>
+                  <div className="whitespace-pre-wrap">{phaseRow.user_response}</div>
+                </div>
+              )}
+              {acceptedFeedback && (
+                <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900 dark:border-green-800/50 dark:bg-green-950/30 dark:text-green-200">
+                  <p className="mb-1 text-xs uppercase tracking-[0.15em] opacity-70">
+                    Coach
+                  </p>
+                  <p>{acceptedFeedback}</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <form
+              action="/api/session/phase"
+              method="post"
+              className="flex flex-col gap-3"
             >
-              {engagementMet ? "Next" : "Submit"}
-            </button>
-          </div>
-        </form>
+              <input type="hidden" name="sessionId" value={sessionId} />
+              <input type="hidden" name="phase" value="learn" />
+
+              <DraftTextarea
+                sessionId={sessionId}
+                phase="learn"
+                serverValue={phaseRow?.user_response ?? ""}
+                required
+                minLength={20}
+                placeholder="Think before answering…"
+                className="min-h-[140px] w-full resize-y rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 dark:focus:border-neutral-100"
+              />
+
+              <div className="flex items-center justify-between pt-2">
+                <span className="text-xs text-neutral-500">
+                  Submit a genuine attempt to unlock Next.
+                </span>
+                <button
+                  type="submit"
+                  className="rounded-full bg-neutral-900 px-5 py-2 text-sm font-medium text-neutral-50 transition hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
+                >
+                  Submit
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       )}
     </article>
   );

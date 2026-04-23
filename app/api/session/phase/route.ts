@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { USER_ID } from "@/lib/db";
+import { USER_ID, getMostRecentMemory } from "@/lib/db";
 import { buildSystemPrompt } from "@/lib/prompt";
 import {
   evaluatePhaseResponse,
@@ -8,6 +8,7 @@ import {
   generateApplyPhase,
   generateAdaptPhase,
   generateSessionSummary,
+  generateMemorySummary,
 } from "@/lib/claude";
 import type { Phase, PhaseMessage, PhaseContentMessage } from "@/lib/types";
 
@@ -40,7 +41,7 @@ function getSessionTopic(sessionId: string, supa: ReturnType<typeof getSupabaseA
 
 async function loadSystemPrompt(session: { session_number: number }) {
   const supa = getSupabaseAdmin();
-  const [{ data: recent }, { data: project }] = await Promise.all([
+  const [{ data: recent }, { data: project }, memory] = await Promise.all([
     supa
       .from("sessions")
       .select("session_number, summary, completed_at")
@@ -56,6 +57,7 @@ async function loadSystemPrompt(session: { session_number: number }) {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+    getMostRecentMemory(),
   ]);
 
   return buildSystemPrompt({
@@ -63,6 +65,7 @@ async function loadSystemPrompt(session: { session_number: number }) {
     activeProject: project
       ? { title: project.title as string, state: project.state }
       : null,
+    memory,
     recentSummaries: (recent ?? []).map((r) => ({
       session_number: r.session_number as number,
       summary: r.summary,
@@ -188,10 +191,14 @@ export async function POST(request: NextRequest) {
       response,
     });
 
+    const feedbackContent = evaluation.accepted && evaluation.what_was_good
+      ? `${evaluation.what_was_good}${evaluation.one_improvement ? `\n\n**To go further:** ${evaluation.one_improvement}` : ""}`
+      : evaluation.feedback;
+
     const updatedMessages: PhaseMessage[] = [
       ...messages,
       { role: "user", content: response },
-      { role: "assistant", content: evaluation.feedback },
+      { role: "assistant", content: feedbackContent },
     ];
 
     await supa
@@ -295,10 +302,14 @@ export async function POST(request: NextRequest) {
       response,
     });
 
+    const feedbackContent = evaluation.accepted && evaluation.what_was_good
+      ? `${evaluation.what_was_good}${evaluation.one_improvement ? `\n\n**To go further:** ${evaluation.one_improvement}` : ""}`
+      : evaluation.feedback;
+
     const updatedMessages: PhaseMessage[] = [
       ...messages,
       { role: "user", content: response },
-      { role: "assistant", content: evaluation.feedback },
+      { role: "assistant", content: feedbackContent },
     ];
 
     await supa
@@ -371,6 +382,16 @@ export async function POST(request: NextRequest) {
       // non-blocking — session still completes without summary
     }
 
+    let memorySummary = null;
+    try {
+      memorySummary = await generateMemorySummary(
+        summary ? JSON.stringify(summary) : "",
+        phaseDigest,
+      );
+    } catch {
+      // non-blocking — session still completes without memory
+    }
+
     await supa
       .from("sessions")
       .update({
@@ -378,6 +399,7 @@ export async function POST(request: NextRequest) {
         status: "complete",
         completed_at: new Date().toISOString(),
         ...(summary ? { summary } : {}),
+        ...(memorySummary ? { memory_summary: memorySummary } : {}),
       })
       .eq("id", sessionId);
 

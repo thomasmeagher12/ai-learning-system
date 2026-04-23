@@ -1,4 +1,5 @@
 import ReactMarkdown from "react-markdown";
+import DraftTextarea from "@/app/components/DraftTextarea";
 import type { PhaseRow, PhaseMessage, PhaseContentMessage, ChatTurn } from "@/lib/types";
 
 type ApplyData = {
@@ -34,9 +35,11 @@ const markdownClass =
 export default function ApplyView({
   sessionId,
   phaseRow,
+  reviewMode = false,
 }: {
   sessionId: string;
   phaseRow: PhaseRow | null;
+  reviewMode?: boolean;
 }) {
   const data = extractApplyData(phaseRow);
 
@@ -81,7 +84,7 @@ export default function ApplyView({
         </div>
       )}
 
-      {!hasAttempts && data.starter_hint && (
+      {!hasAttempts && data.starter_hint && !reviewMode && (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-800/50 dark:bg-blue-950/30 dark:text-blue-200">
           <p className="mb-1 text-xs uppercase tracking-[0.15em] opacity-70">
             Hint
@@ -110,7 +113,7 @@ export default function ApplyView({
         </div>
       )}
 
-      {engagementMet && (
+      {engagementMet && !reviewMode && (
         <div className="rounded-md border border-green-200 bg-green-50 px-4 py-3 dark:border-green-800/50 dark:bg-green-950/30">
           <p className="text-sm font-medium text-green-900 dark:text-green-200">
             You&apos;ve met the goals for this task.
@@ -133,38 +136,41 @@ export default function ApplyView({
         </div>
       )}
 
-      <form
-        action="/api/session/phase"
-        method="post"
-        className="flex flex-col gap-3 border-t border-neutral-200 pt-6 dark:border-neutral-800"
-      >
-        <input type="hidden" name="sessionId" value={sessionId} />
-        <input type="hidden" name="phase" value="apply" />
+      {!reviewMode && (
+        <form
+          action="/api/session/phase"
+          method="post"
+          className="flex flex-col gap-3 border-t border-neutral-200 pt-6 dark:border-neutral-800"
+        >
+          <input type="hidden" name="sessionId" value={sessionId} />
+          <input type="hidden" name="phase" value="apply" />
 
-        <textarea
-          name="response"
-          required
-          minLength={20}
-          placeholder={
-            hasAttempts ? "Refine your work…" : "Start working on the task…"
-          }
-          className="min-h-[180px] w-full resize-y rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 dark:focus:border-neutral-100"
-        />
+          <DraftTextarea
+            sessionId={sessionId}
+            phase="apply"
+            required
+            minLength={20}
+            placeholder={
+              hasAttempts ? "Refine your work…" : "Start working on the task…"
+            }
+            className="min-h-[180px] w-full resize-y rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 outline-none focus:border-neutral-900 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-100 dark:focus:border-neutral-100"
+          />
 
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-xs text-neutral-500">
-            {engagementMet
-              ? "You can keep iterating or continue above."
-              : "Submit your work for feedback."}
-          </span>
-          <button
-            type="submit"
-            className="rounded-full bg-neutral-900 px-5 py-2 text-sm font-medium text-neutral-50 transition hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
-          >
-            Submit
-          </button>
-        </div>
-      </form>
+          <div className="flex items-center justify-between pt-2">
+            <span className="text-xs text-neutral-500">
+              {engagementMet
+                ? "You can keep iterating or continue above."
+                : "Submit your work for feedback."}
+            </span>
+            <button
+              type="submit"
+              className="rounded-full bg-neutral-900 px-5 py-2 text-sm font-medium text-neutral-50 transition hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
+            >
+              Submit
+            </button>
+          </div>
+        </form>
+      )}
     </article>
   );
 }

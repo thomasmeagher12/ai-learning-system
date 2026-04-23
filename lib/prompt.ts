@@ -23,10 +23,18 @@ export type ActiveProject = {
   state: unknown;
 };
 
+export type MemoryBlock = {
+  topics_learned: string[];
+  strengths: string[];
+  weaknesses: string[];
+  areas_to_revisit: string[];
+};
+
 export function buildSystemPrompt(ctx: {
   sessionNumber: number;
   activeProject: ActiveProject | null;
   recentSummaries: RecentSummary[];
+  memory?: MemoryBlock | null;
 }): string {
   const recent = ctx.recentSummaries.length
     ? JSON.stringify(ctx.recentSummaries, null, 2)
@@ -55,7 +63,17 @@ ${project}
 Recent session summaries (most recent first):
 ${recent}
 
-## Behavioral rules
+${ctx.memory ? `## Memory from last session (use your judgment)
+- Topics learned: ${ctx.memory.topics_learned.join(", ")}
+  → Avoid re-teaching these unless directly relevant to today's topic
+- Strengths: ${ctx.memory.strengths.join(", ")}
+  → You can assume this knowledge — no need to re-explain
+- Weaknesses: ${ctx.memory.weaknesses.length > 0 ? ctx.memory.weaknesses.join(", ") : "None identified"}
+  → If today's session touches this area, reinforce it. If unrelated, ignore it.
+- Areas to revisit: ${ctx.memory.areas_to_revisit.length > 0 ? ctx.memory.areas_to_revisit.join(", ") : "None"}
+  → Incorporate only if it connects naturally to today's content
+
+` : ""}## Behavioral rules
 - Scaffold, do not spoon-feed. No full answers until the user has tried.
 - Keep tasks in the user's Zone of Proximal Development — slightly beyond current ability but achievable in the phase's time budget.
 - Prioritize action and real-world application over explanation.

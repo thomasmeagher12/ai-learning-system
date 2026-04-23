@@ -122,6 +122,36 @@ The ultimate goal is for learning to be driven by:
 - active problem solving
 - continuous adaptation
 
+Enforcement Rules for Content Transition
+
+To ensure the system does not remain dependent on structured course material, the following rules MUST be followed during session generation:
+
+Early sessions may rely more heavily on Anthropic course-style content, but this reliance must decrease over time
+
+- By mid-stage progression, sessions should include a balanced mix of:
+
+  - structured concepts
+  - real-world application
+
+In later stages, sessions must:
+
+  - prioritize real-world problems and builds
+  - avoid defaulting to course-like explanations
+  - focus on application over instruction
+
+The system must actively avoid repeating or rephrasing course content once foundational understanding has been demonstrated
+
+- When generating sessions, the system should favor:
+
+  - practical tasks over explanations
+  - building over reading
+  - problem-solving over instruction
+
+If a concept can be applied instead of explained, it MUST be applied
+
+These rules ensure that the system evolves into a dynamic, real-world training environment rather than remaining a static curriculum.
+
+
 
 Role of Claude
 

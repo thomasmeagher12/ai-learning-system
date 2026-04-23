@@ -14,6 +14,7 @@ create table if not exists sessions (
   streak int not null default 0,
   skill_estimate jsonb,
   summary jsonb,
+  memory_summary jsonb,
   created_at timestamptz not null default now(),
   completed_at timestamptz
 );

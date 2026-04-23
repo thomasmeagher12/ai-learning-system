@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { getActiveSession, USER_ID } from "@/lib/db";
+import { getActiveSession, getTodayCompletedSession, getMostRecentMemory, USER_ID } from "@/lib/db";
 import { buildSystemPrompt } from "@/lib/prompt";
 import { generateLearnPhase } from "@/lib/claude";
 import type { PhaseMessage } from "@/lib/types";
@@ -21,9 +21,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const todayDone = await getTodayCompletedSession();
+  if (todayDone) {
+    return Response.redirect(new URL("/", request.url), 303);
+  }
+
   const supa = getSupabaseAdmin();
 
-  const [{ data: recent }, { data: project }, { data: maxRow }, { data: lastComplete }] =
+  const [{ data: recent }, { data: project }, { data: maxRow }, { data: lastComplete }, memory] =
     await Promise.all([
       supa
         .from("sessions")
@@ -55,6 +60,7 @@ export async function POST(request: NextRequest) {
         .order("completed_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      getMostRecentMemory(),
     ]);
 
   const sessionNumber = (maxRow?.session_number ?? 0) + 1;
@@ -70,6 +76,7 @@ export async function POST(request: NextRequest) {
     activeProject: project
       ? { title: project.title as string, state: project.state }
       : null,
+    memory,
     recentSummaries: (recent ?? []).map((r) => ({
       session_number: r.session_number as number,
       summary: r.summary,

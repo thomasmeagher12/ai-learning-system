@@ -46,12 +46,14 @@ const learnTool = {
 export type PhaseEvaluation = {
   accepted: boolean;
   feedback: string;
+  what_was_good: string | null;
+  one_improvement: string | null;
 };
 
 const evaluateResponseTool = {
   name: "evaluate_phase_response",
   description:
-    "Evaluate the user's response to a phase question. Decide whether it's a genuine attempt and produce short coaching feedback.",
+    "Evaluate the user's response to a phase question. Decide whether it's a genuine attempt and produce coaching feedback.",
   input_schema: {
     type: "object" as const,
     properties: {
@@ -63,10 +65,20 @@ const evaluateResponseTool = {
       feedback: {
         type: "string",
         description:
-          "1–3 sentences of coaching feedback. If accepted: brief confirmation, optionally nudge toward deeper thinking. If rejected: warmly point out what's missing and invite another attempt. Never give away the full answer.",
+          "If rejected: 1–3 sentences warmly pointing out what's missing and inviting another attempt. If accepted: leave this as a brief transition like 'Nice work.' — the detailed feedback goes in the fields below.",
+      },
+      what_was_good: {
+        type: "string",
+        description:
+          "Required when accepted=true. 1–2 sentences of specific positive feedback on what worked well in the response. Be concrete — reference specific parts of their answer. Return empty string if rejected.",
+      },
+      one_improvement: {
+        type: "string",
+        description:
+          "Required when accepted=true. 1 concrete suggestion for how they could deepen or improve their thinking further. Not a correction — a growth nudge. Return empty string if rejected.",
       },
     },
-    required: ["accepted", "feedback"],
+    required: ["accepted", "feedback", "what_was_good", "one_improvement"],
   },
 };
 
@@ -92,7 +104,13 @@ export async function evaluatePhaseResponse(
   if (!block || block.type !== "tool_use") {
     throw new Error("Claude did not return tool_use for evaluate_phase_response");
   }
-  return block.input as PhaseEvaluation;
+  const raw = block.input as Record<string, unknown>;
+  return {
+    accepted: Boolean(raw.accepted),
+    feedback: String(raw.feedback ?? ""),
+    what_was_good: raw.accepted ? String(raw.what_was_good ?? "") || null : null,
+    one_improvement: raw.accepted ? String(raw.one_improvement ?? "") || null : null,
+  } as PhaseEvaluation;
 }
 
 export type AdaptContent = {
@@ -372,5 +390,93 @@ export async function generateSessionSummary(
   if (!block || block.type !== "tool_use") {
     throw new Error("Claude did not return tool_use for emit_session_summary");
   }
-  return block.input as SessionSummary;
+  const raw = block.input as Record<string, unknown>;
+  return {
+    ...raw,
+    areas_to_revisit: Array.isArray(raw.areas_to_revisit)
+      ? raw.areas_to_revisit.map(String)
+      : raw.areas_to_revisit
+        ? [String(raw.areas_to_revisit)]
+        : [],
+  } as SessionSummary;
+}
+
+export type MemorySummary = {
+  topics_learned: string[];
+  strengths: string[];
+  weaknesses: string[];
+  areas_to_revisit: string[];
+};
+
+const memorySummaryTool = {
+  name: "emit_memory_summary",
+  description:
+    "Analyze a completed training session and extract structured memory for use in future sessions.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      topics_learned: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "What was actually practiced in this session. Be specific: 'three-part prompt structure (role/context/constraints)' not 'prompt engineering'.",
+      },
+      strengths: {
+        type: "array",
+        items: { type: "string" },
+        maxItems: 3,
+        description:
+          "What the user did well. Max 3 items. Be concrete: 'applied concepts to real Ironman training scenario' not 'good effort'.",
+      },
+      weaknesses: {
+        type: "array",
+        items: { type: "string" },
+        maxItems: 3,
+        description:
+          "What the user struggled with. Max 3 items. Empty array if no clear weaknesses. Be specific: 'reverted to vague prompts under time pressure' not 'needs improvement'.",
+      },
+      areas_to_revisit: {
+        type: "array",
+        items: { type: "string" },
+        maxItems: 3,
+        description:
+          "Specific concepts to reinforce in the next session. Max 3 items. Should directly inform what to teach or practice next.",
+      },
+    },
+    required: ["topics_learned", "strengths", "weaknesses", "areas_to_revisit"],
+  },
+};
+
+const MEMORY_SYSTEM_PROMPT =
+  "You are a memory system for an AI training app. Analyze the session data and identify patterns in how the user performed. Be specific, not generic. 'Struggled with writing system prompts' is good. 'Needs improvement' is not.";
+
+export async function generateMemorySummary(
+  summary: string,
+  phaseData: string,
+): Promise<MemorySummary> {
+  const client = getAnthropic();
+  const res = await client.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: 1024,
+    system: MEMORY_SYSTEM_PROMPT,
+    tools: [memorySummaryTool],
+    tool_choice: { type: "tool", name: "emit_memory_summary" },
+    messages: [
+      {
+        role: "user",
+        content: `Session summary:\n${summary}\n\n---\n\nFull phase data:\n${phaseData}\n\nExtract structured memory from this session.`,
+      },
+    ],
+  });
+  const block = res.content.find((b) => b.type === "tool_use");
+  if (!block || block.type !== "tool_use") {
+    throw new Error("Claude did not return tool_use for emit_memory_summary");
+  }
+  const raw = block.input as Record<string, unknown>;
+  return {
+    topics_learned: Array.isArray(raw.topics_learned) ? raw.topics_learned.map(String) : [],
+    strengths: Array.isArray(raw.strengths) ? raw.strengths.map(String) : [],
+    weaknesses: Array.isArray(raw.weaknesses) ? raw.weaknesses.map(String) : [],
+    areas_to_revisit: Array.isArray(raw.areas_to_revisit) ? raw.areas_to_revisit.map(String) : [],
+  };
 }
