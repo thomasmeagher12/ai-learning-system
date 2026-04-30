@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getActiveSession, getLastCompletedSession, getTodayCompletedSession } from "@/lib/db";
+import CountdownToTomorrow from "@/app/components/CountdownToTomorrow";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,7 @@ export default async function Home() {
             Resume Session
           </Link>
         ) : todayDone ? (
-          <div className="flex w-full flex-col gap-3">
+          <div className="flex w-full flex-col items-center gap-3">
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
               Today&apos;s session is complete. Nice work.
             </p>
@@ -55,6 +56,7 @@ export default async function Home() {
             >
               Review Today&apos;s Session
             </Link>
+            <CountdownToTomorrow />
           </div>
         ) : (
           <form action="/api/session/start" method="post" className="w-full">

@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/", label: "Home" },
   { href: "/recaps", label: "Summaries" },
   { href: "/archive", label: "Sessions" },
+  { href: "/projects", label: "Projects" },
 ];
 
 export default function FloatingNav() {

@@ -64,6 +64,16 @@ Teaching Rules
 
 ---
 
+Topic Selection
+
+- Topic selection follows the structured curriculum defined in `docs/curriculum.md`
+- Today's Learn topic must come from the current stage's anchor concepts
+- Identify the current stage by examining the concept history and stage advancement criteria
+- Do not introduce concepts from later stages until the current stage's advancement criteria are met
+- Stage progression is mastery-based, not session-count based
+
+---
+
 Progression
 
 - Sessions should become more advanced over time

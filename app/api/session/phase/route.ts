@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { USER_ID, getMostRecentMemory } from "@/lib/db";
+import { USER_ID } from "@/lib/db";
 import { buildSystemPrompt } from "@/lib/prompt";
 import {
   evaluatePhaseResponse,
@@ -10,11 +10,15 @@ import {
   generateSessionSummary,
   generateMemorySummary,
 } from "@/lib/claude";
+import type { MemorySummary } from "@/lib/claude";
+import { evaluateWarmUpResponse, extractConceptsFromSession } from "@/lib/claude-review";
+import { updateConceptStrength, saveConceptsFromSession, getAllConcepts, computeCurrentStage } from "@/lib/concepts";
+import { calendarDaysBetween } from "@/lib/date";
 import type { Phase, PhaseMessage, PhaseContentMessage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const PHASES: Phase[] = ["learn", "apply", "adapt", "reflect"];
+const PHASES: Phase[] = ["warmup", "learn", "apply", "adapt", "reflect"];
 
 function nextPhaseAfter(p: Phase): Phase | "complete" {
   const idx = PHASES.indexOf(p);
@@ -41,14 +45,14 @@ function getSessionTopic(sessionId: string, supa: ReturnType<typeof getSupabaseA
 
 async function loadSystemPrompt(session: { session_number: number }) {
   const supa = getSupabaseAdmin();
-  const [{ data: recent }, { data: project }, memory] = await Promise.all([
+  const [{ data: recent }, { data: project }, allConcepts] = await Promise.all([
     supa
       .from("sessions")
-      .select("session_number, summary, completed_at")
+      .select("session_number, summary, completed_at, memory_summary")
       .eq("user_id", USER_ID)
       .eq("status", "complete")
       .order("completed_at", { ascending: false })
-      .limit(3),
+      .limit(7),
     supa
       .from("projects")
       .select("title, state")
@@ -57,20 +61,29 @@ async function loadSystemPrompt(session: { session_number: number }) {
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    getMostRecentMemory(),
+    getAllConcepts(),
   ]);
+
+  const recentRows = recent ?? [];
+  const currentStage = computeCurrentStage(allConcepts);
 
   return buildSystemPrompt({
     sessionNumber: session.session_number,
+    currentStage,
     activeProject: project
       ? { title: project.title as string, state: project.state }
       : null,
-    memory,
-    recentSummaries: (recent ?? []).map((r) => ({
+    recentSummaries: recentRows.map((r) => ({
       session_number: r.session_number as number,
       summary: r.summary,
       completed_at: (r.completed_at as string | null) ?? null,
     })),
+    recentMemories: recentRows
+      .filter((r) => r.memory_summary != null)
+      .map((r) => ({
+        session_number: r.session_number as number,
+        memory_summary: r.memory_summary as MemorySummary,
+      })),
   });
 }
 
@@ -175,18 +188,107 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (phase === "warmup") {
+    const messages = phaseRow.messages as PhaseMessage[];
+    const seed = messages.find(isContentMessage);
+    if (!seed) return new Response("Missing warmup seed", { status: 500 });
+
+    const recallPrompts = (seed.data.recall_prompts as Array<{
+      concept_id: string;
+      concept_name: string;
+      question: string;
+    }>) ?? [];
+
+    const userTurns = messages.filter(
+      (m) => !("kind" in m) && m.role === "user",
+    );
+    const currentIndex = userTurns.length;
+    const currentPrompt = recallPrompts[currentIndex];
+
+    if (!currentPrompt) {
+      await supa.from("sessions").update({ current_phase: "learn" }).eq("id", sessionId);
+      await supa
+        .from("phase_data")
+        .update({ engagement_met: true, updated_at: new Date().toISOString() })
+        .eq("id", phaseRow.id);
+      return Response.redirect(new URL(`/session/${sessionId}`, request.url), 303);
+    }
+
+    const systemPrompt = await loadSystemPrompt(session);
+
+    const { data: conceptRow } = await supa
+      .from("concepts")
+      .select("concept_summary")
+      .eq("id", currentPrompt.concept_id)
+      .maybeSingle();
+
+    const evaluation = await evaluateWarmUpResponse(systemPrompt, {
+      concept_name: currentPrompt.concept_name,
+      concept_summary: String(conceptRow?.concept_summary ?? ""),
+      question: currentPrompt.question,
+      response,
+    });
+
+    try {
+      await updateConceptStrength(
+        currentPrompt.concept_id,
+        evaluation.quality,
+        session.session_number,
+      );
+    } catch (err) {
+      console.error("[warmup] updateConceptStrength failed:", err);
+    }
+
+    const updatedMessages: PhaseMessage[] = [
+      ...messages,
+      { role: "user", content: response },
+      { role: "assistant", content: `**${evaluation.quality.charAt(0).toUpperCase() + evaluation.quality.slice(1)}** — ${evaluation.feedback}` },
+    ];
+
+    const allDone = currentIndex + 1 >= recallPrompts.length;
+
+    await supa
+      .from("phase_data")
+      .update({
+        messages: updatedMessages,
+        user_response: response,
+        engagement_met: allDone,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", phaseRow.id);
+
+    if (allDone) {
+      await supa.from("sessions").update({ current_phase: "learn" }).eq("id", sessionId);
+    }
+
+    return Response.redirect(new URL(`/session/${sessionId}`, request.url), 303);
+  }
+
   if (phase === "learn") {
     const messages = phaseRow.messages as PhaseMessage[];
     const seed = messages.find(isContentMessage);
     if (!seed) return new Response("Missing learn seed", { status: 500 });
 
-    const concept = String(seed.data.concept_markdown ?? "");
-    const question = String(seed.data.comprehension_question ?? "");
+    const sessionType = (session.session_type as string) ?? "standard";
+
+    let context: string;
+    let question: string;
     const topic = String(seed.data.topic ?? "AI concepts");
+
+    if (sessionType === "review") {
+      context = String(seed.data.recap_markdown ?? "");
+      question = String(seed.data.calibration_question ?? "");
+    } else if (sessionType === "mastery") {
+      context = String(seed.data.narrative_markdown ?? "");
+      question = String(seed.data.reflection_prompt ?? "");
+    } else {
+      context = String(seed.data.concept_markdown ?? "");
+      question = String(seed.data.comprehension_question ?? "");
+    }
 
     const systemPrompt = await loadSystemPrompt(session);
     const evaluation = await evaluatePhaseResponse(systemPrompt, {
-      context: concept,
+      context,
       question,
       response,
     });
@@ -378,8 +480,8 @@ export async function POST(request: NextRequest) {
     let summary = null;
     try {
       summary = await generateSessionSummary(systemPrompt, phaseDigest);
-    } catch {
-      // non-blocking — session still completes without summary
+    } catch (err) {
+      console.error("[reflect] generateSessionSummary failed:", err);
     }
 
     let memorySummary = null;
@@ -388,8 +490,40 @@ export async function POST(request: NextRequest) {
         summary ? JSON.stringify(summary) : "",
         phaseDigest,
       );
-    } catch {
-      // non-blocking — session still completes without memory
+    } catch (err) {
+      console.error("[reflect] generateMemorySummary failed:", err);
+    }
+
+    try {
+      const existing = await getAllConcepts();
+      const concepts = await extractConceptsFromSession(
+        systemPrompt,
+        phaseDigest,
+        existing.map((c) => c.concept_name),
+      );
+      await saveConceptsFromSession(concepts, session.session_number);
+    } catch (err) {
+      console.error("[reflect] concept extraction/save failed:", err);
+    }
+
+    const completedAt = new Date();
+
+    const { data: prevComplete } = await supa
+      .from("sessions")
+      .select("streak, completed_at")
+      .eq("user_id", USER_ID)
+      .eq("status", "complete")
+      .neq("id", sessionId)
+      .order("completed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let newStreak = 1;
+    if (prevComplete?.completed_at) {
+      const gap = calendarDaysBetween(new Date(prevComplete.completed_at), completedAt);
+      if (gap === 1) {
+        newStreak = (prevComplete.streak ?? 0) + 1;
+      }
     }
 
     await supa
@@ -397,7 +531,8 @@ export async function POST(request: NextRequest) {
       .update({
         current_phase: "complete",
         status: "complete",
-        completed_at: new Date().toISOString(),
+        completed_at: completedAt.toISOString(),
+        streak: newStreak,
         ...(summary ? { summary } : {}),
         ...(memorySummary ? { memory_summary: memorySummary } : {}),
       })

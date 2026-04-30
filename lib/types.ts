@@ -1,4 +1,4 @@
-export type Phase = "learn" | "apply" | "adapt" | "reflect";
+export type Phase = "warmup" | "learn" | "apply" | "adapt" | "reflect";
 export type CurrentPhase = Phase | "complete";
 export type SessionStatus = "in_progress" | "complete";
 export type ProjectStatus = "active" | "paused" | "done";
@@ -25,6 +25,8 @@ export type Session = {
   streak: number;
   skill_estimate: unknown | null;
   summary: unknown | null;
+  memory_summary: unknown | null;
+  session_type: "standard" | "review" | "mastery";
   created_at: string;
   completed_at: string | null;
 };

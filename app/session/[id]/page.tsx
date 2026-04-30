@@ -1,11 +1,12 @@
 import { notFound, redirect } from "next/navigation";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getLastCompletedSession } from "@/lib/db";
 import type { Session, PhaseRow, Phase } from "@/lib/types";
 import SessionShell from "./SessionShell";
 
 export const dynamic = "force-dynamic";
 
-const PHASES: Phase[] = ["learn", "apply", "adapt", "reflect"];
+const ALL_PHASES: Phase[] = ["warmup", "learn", "apply", "adapt", "reflect"];
 
 export default async function SessionPage({
   params,
@@ -43,28 +44,33 @@ export default async function SessionPage({
     phaseMap.set(row.phase as Phase, row);
   }
 
-  const requestedPhase = query.phase && PHASES.includes(query.phase as Phase)
+  const requestedPhase = query.phase && ALL_PHASES.includes(query.phase as Phase)
     ? (query.phase as Phase)
     : null;
 
   const activePhase = session.current_phase as Phase;
-  const activeIdx = PHASES.indexOf(activePhase);
+  const activeIdx = ALL_PHASES.indexOf(activePhase);
 
-  let viewingPhase: Phase = reviewMode ? "learn" : activePhase;
+  let viewingPhase: Phase = reviewMode ? (phaseMap.has("warmup") ? "warmup" : "learn") : activePhase;
   if (requestedPhase) {
     if (reviewMode) {
       viewingPhase = requestedPhase;
-    } else if (PHASES.indexOf(requestedPhase) < activeIdx) {
+    } else if (ALL_PHASES.indexOf(requestedPhase) < activeIdx) {
       viewingPhase = requestedPhase;
     }
   }
 
   const currentPhaseRow = phaseMap.get(viewingPhase) ?? null;
 
-  const completedPhases = PHASES.filter((p) => {
+  const completedPhases = ALL_PHASES.filter((p) => {
     const row = phaseMap.get(p);
     return row?.engagement_met === true;
   });
+
+  const displayStreak =
+    session.status === "complete"
+      ? (session.streak as number) ?? 0
+      : (await getLastCompletedSession())?.streak ?? 0;
 
   return (
     <SessionShell
@@ -73,6 +79,7 @@ export default async function SessionPage({
       reviewMode={reviewMode}
       viewingPhase={viewingPhase}
       completedPhases={completedPhases}
+      displayStreak={displayStreak}
     />
   );
 }

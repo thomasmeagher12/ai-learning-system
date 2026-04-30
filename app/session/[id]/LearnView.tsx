@@ -7,6 +7,10 @@ type LearnData = {
   topic?: string;
   concept_markdown?: string;
   comprehension_question?: string;
+  recap_markdown?: string;
+  calibration_question?: string;
+  narrative_markdown?: string;
+  reflection_prompt?: string;
 };
 
 function extractLearnData(phaseRow: PhaseRow | null): LearnData | null {
@@ -48,7 +52,17 @@ export default function LearnView({
 }) {
   const data = extractLearnData(phaseRow);
 
-  if (!data?.concept_markdown) {
+  const contentMarkdown =
+    data?.concept_markdown || data?.recap_markdown || data?.narrative_markdown;
+  const question =
+    data?.comprehension_question || data?.calibration_question || data?.reflection_prompt;
+  const headerLabel = data?.recap_markdown
+    ? "Cycle Review"
+    : data?.narrative_markdown
+      ? "Your Journey So Far"
+      : "Today\u2019s concept";
+
+  if (!contentMarkdown) {
     return (
       <p className="py-12 text-center text-sm text-neutral-500">
         Learn content missing. Try restarting the session.
@@ -64,7 +78,7 @@ export default function LearnView({
 
   return (
     <article className="flex flex-col gap-8">
-      {data.continuity_message && (
+      {data?.continuity_message && (
         <p className="rounded-md border border-neutral-200 bg-white px-4 py-3 text-sm italic text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
           {data.continuity_message}
         </p>
@@ -72,25 +86,25 @@ export default function LearnView({
 
       <header className="flex flex-col gap-1">
         <span className="text-xs uppercase tracking-[0.2em] text-neutral-500">
-          Today&apos;s concept
+          {headerLabel}
         </span>
-        {data.topic && (
+        {data?.topic && (
           <h1 className="text-2xl font-medium tracking-tight">{data.topic}</h1>
         )}
       </header>
 
       <section className={markdownClass}>
-        <ReactMarkdown>{data.concept_markdown}</ReactMarkdown>
+        <ReactMarkdown>{contentMarkdown}</ReactMarkdown>
       </section>
 
-      {data.comprehension_question && (
+      {question && (
         <div className="flex flex-col gap-3 border-t border-neutral-200 pt-8 dark:border-neutral-800">
           <div className="flex flex-col gap-2">
             <span className="text-xs uppercase tracking-[0.2em] text-neutral-500">
               {reviewMode ? "Question" : "Before you continue"}
             </span>
             <p className="text-[15px] leading-7 text-neutral-800 dark:text-neutral-200">
-              {data.comprehension_question}
+              {question}
             </p>
           </div>
 
